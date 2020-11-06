@@ -16,6 +16,6 @@ Visual Studio 2019
 
 - [X] 加密IAT
 
-- [ ] TLS还原（这个有空写，大概~
+- [X] TLS还原（这个有空写，大概~
  
-- [ ] 反loadpe脱壳
+- [X] 反loadpe脱壳

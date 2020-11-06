@@ -39,11 +39,11 @@ _declspec(dllexport) void start()
 	s_peinfo.mem_pe_base = pebase;
 
 
-	kernel32Base = m_GetDllBaseFromFs(0xfad540f1);
+	kernel32Base = m_GetDllBaseFromFs(0xfad540f1);//kernel32.dll
 
 	if (kernel32Base == NULL)
 	{
-		kernel32Base = m_GetDllBaseFromFs(0xb69e5f4);
+		kernel32Base = m_GetDllBaseFromFs(0xb69e5f4);//KERNEL32.DLL
 	}
 
 	pm_func_table = GetBaseApi(kernel32Base, m_func_table);
@@ -55,6 +55,8 @@ _declspec(dllexport) void start()
 	FixROC(s_peinfo);
 
 	FixIAT(s_peinfo);
+
+	FixTLS(s_peinfo);
 
 	OEP = (PCHAR)s_peinfo.mem_pe_base + s_peinfo.OEP;
 
@@ -74,12 +76,24 @@ JmpToOep(DWORD s_peinfo)
 {
 	__asm
 	{
+		jmp next
+		__emit 0x85;
+	next:
 		call eax;
+
 		ret;
 	}
 }
 
 
+//************************************
+// 函数名称: HookIAT
+// 函数说明: hookIAT,dump的时候不好恢复
+// 函数参数: DWORD lpfunc
+// 函数参数: PVOID pvirtualloc
+// 创 建 人: Cray
+// 创建日期: 2020/10/27
+//************************************
 DWORD HookIAT(DWORD lpfunc, PVOID pvirtualloc)
 {
 
@@ -97,7 +111,7 @@ DWORD HookIAT(DWORD lpfunc, PVOID pvirtualloc)
 		0x50,						           //PUSH EAX
 		0xC3 };						           //RET
 
-	if (lpfunc & 0xF)
+	if (lpfunc & 0x2)
 	{
 		return lpfunc;
 	}
@@ -123,6 +137,40 @@ DWORD HookIAT(DWORD lpfunc, PVOID pvirtualloc)
 
 
 	return pMyIAT;
+}
+
+//************************************
+// 函数名称: FixTLS
+// 函数说明: 修复TLS
+// 函数参数: DWORD s_peinfo
+// 创 建 人: Cray
+// 创建日期: 2020/10/28
+//************************************
+BOOL FixTLS(Pestruct  s_peinfo)
+{
+	*(PWORD)s_peinfo.mem_pe_base = 0x5555;
+
+	if (s_peinfo.TLS.VirtualAddress == 0)
+	{
+		return 0;
+	}
+
+	PIMAGE_NT_HEADERS pNT = GetNTHeader(s_peinfo.mem_pe_base);
+
+	pNT->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress = s_peinfo.TLS.VirtualAddress;
+
+	pNT->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size = s_peinfo.TLS.Size;
+
+	PIMAGE_TLS_DIRECTORY tls = (PCHAR)s_peinfo.mem_pe_base + s_peinfo.TLS.VirtualAddress;
+
+	PIMAGE_TLS_CALLBACK* tlscallback = tls->AddressOfCallBacks;
+
+	while ((*tlscallback) != NULL)
+	{
+		(*tlscallback)((PVOID)s_peinfo.mem_pe_base, DLL_PROCESS_ATTACH, NULL);
+
+		tlscallback++;
+	}
 }
 
 
@@ -199,24 +247,6 @@ BOOL FixIAT(Pestruct  s_peinfo)
 			//lpFirNameArry[i].u1.Function = (DWORD)Funaddr;
 			lpFirNameArry[i].u1.Function = HookIAT(Funaddr, s_peinfo.pm_func_table->mf_VirtualAlloc);
 
-			//DWORD fun1 = Funaddr >> 24;
-			//DWORD fun2 = Funaddr >> 16 & 0xFF;
-			//DWORD fun3 = Funaddr >> 8 & 0xFF;
-			//DWORD fun4 = Funaddr & 0xFF;
-
-			//PBYTE pMyIAT = m_virtualloc(NULL, 0x30, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-
-			//ss[1] = fun4;
-			//ss[2] = fun3;
-			//ss[3] = fun2;
-			//ss[4] = fun1;
-
-			//for (int i = 0;i <= 5; i++)
-			//{
-			//	pMyIAT[i] = ss[i];
-			//}
-
-			//lpFirNameArry[i].u1.Function = pMyIAT;
 
 			i++;
 		}
@@ -441,6 +471,8 @@ VOID DecryptExc(Pestruct m_pestruct)
 	M_VirtualProtect m_VirtualProtect = m_pestruct.pm_func_table->mf_VirtualProtect;
 
 	DWORD pflOldProtect;
+
+	m_VirtualProtect((PCHAR)(m_pestruct.mem_pe_base), GetNTHeader(m_pestruct.mem_pe_base)->OptionalHeader.SizeOfHeaders, PAGE_EXECUTE_READWRITE, &pflOldProtect);
 
 	for (; SecNumber > 0; SecNumber--)
 	{

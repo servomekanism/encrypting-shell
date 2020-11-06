@@ -69,6 +69,8 @@ typedef struct PESTRUCT
 
 	IMAGE_DATA_DIRECTORY ROC;
 
+	IMAGE_DATA_DIRECTORY TLS;
+
 	DWORD OEP;
 
 	DWORD oldImageBase;
@@ -81,21 +83,6 @@ typedef struct PESTRUCT
 
 }Pestruct, * PPestruct;
 
-//typedef struct PESTRUCT
-//{
-//	IMAGE_DATA_DIRECTORY IAT;
-//
-//	IMAGE_DATA_DIRECTORY ROC;
-//
-//	PVOID mem_pe_base;//这里随意
-//
-//	PM_FUNC_TABLE pm_func_table;//这个值在这个没用，借来用用
-//
-//	DWORD OEP;
-//
-//	DWORD oldImageBase;
-//
-//}Pestruct, * PPestruct;
 
 
 _declspec(dllexport)  void start();
@@ -122,6 +109,8 @@ PVOID m_GetDllBaseFromFs(size_t);
 BOOL FixROC(Pestruct);
 
 BOOL FixIAT(Pestruct);
+
+BOOL FixTLS(Pestruct);
 
 BOOL JmpToOep(DWORD);
 

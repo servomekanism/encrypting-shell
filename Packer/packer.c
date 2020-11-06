@@ -192,15 +192,18 @@ VOID DecryptExc(Pestruct m_pestruct)
 VOID ClearI_AT_ROC(Pestruct m_pestruct)
 {
 
-	m_pestruct.m_dwpOptHeader->DataDirectory[1].VirtualAddress = 0;
-	m_pestruct.m_dwpOptHeader->DataDirectory[1].Size = 0;
+	m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = 0;
+	m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = 0;
 
-	m_pestruct.m_dwpOptHeader->DataDirectory[5].VirtualAddress = 0;
-	m_pestruct.m_dwpOptHeader->DataDirectory[5].Size = 0;
+	m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress = 0;
+	m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size = 0;
+
+	m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress = 0;
+	m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size = 0;
 
 	//不清理import address Table directory 程序会加载不起来
-	m_pestruct.m_dwpOptHeader->DataDirectory[12].VirtualAddress = 0;
-	m_pestruct.m_dwpOptHeader->DataDirectory[12].Size = 0;
+	m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress = 0;
+	m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size = 0;
 
 }
 
@@ -225,6 +228,9 @@ Pestruct InitStuct(Pestruct m_pestruct)
 
 	m_pestruct.ROC =
 		m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]; // 重定位表项
+
+	m_pestruct.TLS =
+		m_pestruct.m_dwpOptHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS]; //TLS表项
 
 	m_pestruct.oldImageBase = m_pestruct.m_dwpOptHeader->ImageBase;
 	return m_pestruct;
