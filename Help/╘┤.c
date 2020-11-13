@@ -51,7 +51,7 @@ DWORD m_GetHash(const char* ApiName, BOOL IsW)
 
 int main()
 {
-	DWORD hash = m_GetHash("kernel32.dll", FALSE);
+	DWORD hash = m_GetHash("GetCursorPos", FALSE);
 
 	printf("0x%x\n", hash);
 

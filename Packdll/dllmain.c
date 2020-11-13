@@ -5,6 +5,7 @@
 #pragma comment(linker,"/section:.text,RWE")
 
 
+
 //************************************
 // 函数名称: start
 // 函数说明: 唯一的导出函数，从这开始
@@ -12,32 +13,61 @@
 // 创 建 人: Cray
 // 创建日期: 2020/10/26
 //************************************
-_declspec(dllexport) void start()
+_declspec(dllexport)
+_declspec(naked) void start()
+{
+	__asm
+	{
+		push eax
+		add eax, 1;
+		jnz yes;
+		pushad;
+		push esp;
+		mov esp, ebp;
+		sub esp, 0x11c;
+		__emit 0x55;
+	yes:
+		add eax, 1;
+		jnz yes2;
+		__emit 0xff;
+	yes2:
+		pop eax;
+		call run;
+	}
+}
+
+void run()
 {
 	Pestruct s_peinfo;
 
 	PM_FUNC_TABLE pm_func_table;
 
-	M_FUNC_TABLE m_func_table;
-
 	DWORD kernel32Base = NULL;
 
 	FARPROC OEP = NULL;
-
-	m_func_table.mf_GetProcessAddress = 0;
-	m_func_table.mf_LoadlibraryA = 0;
-	m_func_table.mf_VirtualProtect = 0;
-	m_func_table.mf_GetModuleHandleA = 0;
-	m_func_table.mf_VirtualAlloc = 0;
+	__asm
+	{
+		push eax
+		add eax, 1;
+		jnz yes;
+		pushad;
+		push esp;
+		mov esp, ebp;
+		sub esp, 0x11c;
+		__emit 0x55;
+	yes:
+		add eax, 1;
+		jnz yes2;
+		__emit 0xff;
+	yes2:
+		pop eax;
+	}
 
 	PCHAR pebase = Getbase();
-
-	AntiDebug();
 
 	s_peinfo = GetStruct(pebase);
 
 	s_peinfo.mem_pe_base = pebase;
-
 
 	kernel32Base = m_GetDllBaseFromFs(0xfad540f1);//kernel32.dll
 
@@ -46,15 +76,17 @@ _declspec(dllexport) void start()
 		kernel32Base = m_GetDllBaseFromFs(0xb69e5f4);//KERNEL32.DLL
 	}
 
-	pm_func_table = GetBaseApi(kernel32Base, m_func_table);
-
+	pm_func_table = GetBaseApi(kernel32Base);
+	//保存后面所需地址表
 	s_peinfo.pm_func_table = pm_func_table;
+
+	PDebuger pdebuger = AntiDebugStart(pm_func_table);
 
 	DecryptExc(s_peinfo);
 
 	FixROC(s_peinfo);
 
-	FixIAT(s_peinfo);
+	FixIAT(s_peinfo, pdebuger);
 
 	FixTLS(s_peinfo);
 
@@ -76,9 +108,11 @@ JmpToOep(DWORD s_peinfo)
 {
 	__asm
 	{
-		jmp next
+		pop eax;
+		jmp next;
 		__emit 0x85;
 	next:
+		pop eax;
 		call eax;
 
 		ret;
@@ -94,7 +128,7 @@ JmpToOep(DWORD s_peinfo)
 // 创 建 人: Cray
 // 创建日期: 2020/10/27
 //************************************
-DWORD HookIAT(DWORD lpfunc, PVOID pvirtualloc)
+DWORD HookIAT(DWORD lpfunc, PVOID pvirtualloc, PDebuger pdebuger)
 {
 
 	M_VirtualAlloc mf_virtualloc = pvirtualloc;
@@ -111,12 +145,29 @@ DWORD HookIAT(DWORD lpfunc, PVOID pvirtualloc)
 		0x50,						           //PUSH EAX
 		0xC3 };						           //RET
 
-	if (lpfunc & 0x2)
+
+	int status = lpfunc >> 8 & 0xFF;
+
+	AntiDebug(pdebuger);
+
+	if (status > 0x7f)
 	{
-		return lpfunc;
+
+		if (pdebuger->Isdebugger > 33)
+		{
+			//不调试
+			return lpfunc;
+		}
+		else
+		{
+			//在调试
+			return 0xfffffffe;
+		}
 	}
 
 	lpfunc = lpfunc ^ 0x73706F30;
+
+	AntiDebug(pdebuger);
 
 	DWORD fun1 = lpfunc >> 24;
 	DWORD fun2 = lpfunc >> 16 & 0xFF;
@@ -141,17 +192,25 @@ DWORD HookIAT(DWORD lpfunc, PVOID pvirtualloc)
 
 //************************************
 // 函数名称: FixTLS
-// 函数说明: 修复TLS
+// 函数说明: 修复TLS和反dump
 // 函数参数: DWORD s_peinfo
 // 创 建 人: Cray
 // 创建日期: 2020/10/28
 //************************************
 BOOL FixTLS(Pestruct  s_peinfo)
 {
-	*(PWORD)s_peinfo.mem_pe_base = 0x5555;
+	//*(PWORD)s_peinfo.mem_pe_base = 0x5555;
 
 	if (s_peinfo.TLS.VirtualAddress == 0)
 	{
+		//反dump
+
+		PIMAGE_DOS_HEADER pdos = (PIMAGE_DOS_HEADER)s_peinfo.mem_pe_base;
+		pdos->e_lfanew = 0x3c;
+
+		PIMAGE_NT_HEADERS pNt = GetNTHeader(s_peinfo.mem_pe_base);
+		pNt->OptionalHeader.SizeOfImage = 0x4000;
+
 		return 0;
 	}
 
@@ -182,7 +241,7 @@ BOOL FixTLS(Pestruct  s_peinfo)
 // 创 建 人: Cray
 // 创建日期: 2020/10/27
 //************************************
-BOOL FixIAT(Pestruct  s_peinfo)
+BOOL FixIAT(Pestruct  s_peinfo, PDebuger pdebuger)
 {
 	BYTE ss[] = { 0x68,0x00,0x00,0x00,0x00,0xC3 };
 
@@ -245,7 +304,7 @@ BOOL FixIAT(Pestruct  s_peinfo)
 			}
 
 			//lpFirNameArry[i].u1.Function = (DWORD)Funaddr;
-			lpFirNameArry[i].u1.Function = HookIAT(Funaddr, s_peinfo.pm_func_table->mf_VirtualAlloc);
+			lpFirNameArry[i].u1.Function = HookIAT(Funaddr, s_peinfo.pm_func_table->mf_VirtualAlloc, pdebuger);
 
 
 			i++;
@@ -315,7 +374,7 @@ BOOL FixROC(Pestruct  s_peinfo)
 // 创 建 人: Cray
 // 创建日期: 2020/10/26
 //************************************
-PM_FUNC_TABLE GetBaseApi(PVOID m_dwpPeBase, M_FUNC_TABLE m_func_table)
+PM_FUNC_TABLE GetBaseApi(PVOID m_dwpPeBase)
 {
 
 	PDWORD m_pfuncs_rva_table;
@@ -323,8 +382,13 @@ PM_FUNC_TABLE GetBaseApi(PVOID m_dwpPeBase, M_FUNC_TABLE m_func_table)
 	DWORD m_export_ord;
 
 	LPCSTR m_func_name;
+	M_FUNC_TABLE m_func_table;
 
 	size_t hash;
+
+	char User[] = { 'U','s','e','r','3','2','.','d','l','l',0 };
+
+	char GetPos[] = { 'G','e','t','C','u','r','s','o','r','P','o','s',0 };
 
 	PIMAGE_EXPORT_DIRECTORY m_exportdir = m_GetImptable(m_dwpPeBase);
 
@@ -369,13 +433,28 @@ PM_FUNC_TABLE GetBaseApi(PVOID m_dwpPeBase, M_FUNC_TABLE m_func_table)
 			//VirtualAlloc
 			m_func_table.mf_VirtualAlloc = (PVOID)((PBYTE)m_dwpPeBase + *(m_pfuncs_rva_table + m_export_ord));
 			break;
-
 		default:
 			break;
 		}
+
 	}
 
-	return &m_func_table;
+	FARPROC loadlib = m_func_table.mf_LoadlibraryA;
+	FARPROC Getproc = m_func_table.mf_GetProcessAddress;
+	m_func_table.mf_GetCursorPos = Getproc(loadlib(User), GetPos);
+
+	FARPROC mvirtualalloc = m_func_table.mf_VirtualAlloc;
+
+	PM_FUNC_TABLE vir_m_func_table = mvirtualalloc(NULL, 0x100, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+
+	vir_m_func_table->mf_GetModuleHandleA = m_func_table.mf_GetModuleHandleA;
+	vir_m_func_table->mf_GetCursorPos = m_func_table.mf_GetCursorPos;
+	vir_m_func_table->mf_GetProcessAddress = m_func_table.mf_GetProcessAddress;
+	vir_m_func_table->mf_LoadlibraryA = m_func_table.mf_LoadlibraryA;
+	vir_m_func_table->mf_VirtualAlloc = m_func_table.mf_VirtualAlloc;
+	vir_m_func_table->mf_VirtualProtect = m_func_table.mf_VirtualProtect;
+
+	return vir_m_func_table;
 }
 
 
@@ -589,27 +668,101 @@ PCHAR Getbase()
 // 创 建 人: Cray
 // 创建日期: 2020/10/26
 //************************************
-VOID AntiDebug()
+PDebuger AntiDebugStart(PM_FUNC_TABLE pm_func_table)
 {
+	DWORD newtime = 0;
 	__asm
 	{
 		push ebp;
 		pop eax;
 		je next;
-		mov ecx, 0x3571831;
+		mov ecx, 0xD01ADFB7;
 		add eax, ecx;
 		jne next;
+		xor ecx, 0x2e7b8ad3;
 		__emit 0xe9;
+		__emit 0x00;
+		__emit 0x80;
 		ret;
 	next:
+		rdtsc;
 		je last;
 		jne last;
 		__emit 0xe8;
 	last:
-		push 0x1024996;
-		pop eax;
+		mov newtime, eax;
+		push 0xad859868;
+		pop ecx;
 	}
 
+
+	FARPROC mvirtualalloc = pm_func_table->mf_VirtualAlloc;
+
+	PDebuger vir_PDebuger = mvirtualalloc(NULL, 0x100, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+
+	vir_PDebuger->mf_GetCursorPos = pm_func_table->mf_GetCursorPos;
+
+	vir_PDebuger->Runtimestart = newtime;
+
+	vir_PDebuger->Isdebugger = 0;
+
+	vir_PDebuger->mf_GetCursorPos(&(vir_PDebuger->Pos));
+
+	return vir_PDebuger;
+}
+
+VOID AntiDebug(PDebuger pdebuger)
+{
+	DWORD newtime = 0;
+	__asm
+	{
+		push ebp;
+		pop ecx;
+		je next;
+		mov ecx, 0xb979379e;
+		xor eax, ecx;
+		jne next;
+		xor ecx, 0x61c88647;
+		__emit 0xe9;
+		__emit 0x00;
+		__emit 0x30;
+		ret;
+	next:
+		rdtsc;
+		je last;
+		jne last;
+		__emit 0xe8;
+	last:
+		mov newtime, eax;
+		push 0x1024996;
+		pop ecx;
+	}
+
+	DWORD offsettime = newtime - pdebuger->Runtimestart;
+
+	if (offsettime >> 24)
+	{
+		pdebuger->Isdebugger -= 1008;
+	}
+	else
+	{
+		//时间检测通过
+		POINT Secp;
+
+		pdebuger->mf_GetCursorPos(&Secp);
+
+		int pos = pdebuger->Pos.x - Secp.x + pdebuger->Pos.y - Secp.y;
+
+		if (pos > 10)
+		{
+			pdebuger->Isdebugger -= 1008;
+		}
+		else
+		{
+			//位置检测通过
+			pdebuger->Isdebugger += 58;
+		}
+	}
 }
 
 //************************************

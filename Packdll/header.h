@@ -1,6 +1,7 @@
 #include <Windows.h>
-#include <stdio.h>
 #include <winternl.h>
+
+#include <stdlib.h>
 
 
 typedef BOOL(WINAPI* M_VirtualProtect)(
@@ -59,6 +60,8 @@ typedef struct _M_FUNC_TABLE
 	PVOID mf_VirtualProtect;
 	PVOID mf_GetModuleHandleA;
 	PVOID mf_VirtualAlloc;
+	PVOID mf_GetCursorPos;
+
 
 }M_FUNC_TABLE, * PM_FUNC_TABLE;
 
@@ -79,18 +82,32 @@ typedef struct PESTRUCT
 
 	PM_FUNC_TABLE pm_func_table;//这个值在这个没用，借来用用
 
-
-
 }Pestruct, * PPestruct;
+
+
+typedef struct DEBUGER
+{
+	DWORD Runtimestart;
+
+	FARPROC mf_GetCursorPos;
+
+	POINT Pos;
+
+	int Isdebugger;
+
+}Debuger, * PDebuger;
 
 
 
 _declspec(dllexport)  void start();
+void run();
 
 size_t
 m_GetHash(const char*, BOOL);
 
-VOID AntiDebug();
+VOID AntiDebug(PDebuger);
+
+PDebuger AntiDebugStart(PM_FUNC_TABLE);
 
 PCHAR Getbase();
 
@@ -100,7 +117,7 @@ PIMAGE_NT_HEADERS GetNTHeader(PVOID);
 
 VOID DecryptExc(Pestruct);
 
-PM_FUNC_TABLE GetBaseApi(PVOID, M_FUNC_TABLE);
+PM_FUNC_TABLE GetBaseApi(PVOID);
 
 PIMAGE_EXPORT_DIRECTORY m_GetImptable(PVOID);
 
@@ -108,10 +125,10 @@ PVOID m_GetDllBaseFromFs(size_t);
 
 BOOL FixROC(Pestruct);
 
-BOOL FixIAT(Pestruct);
+BOOL FixIAT(Pestruct, PDebuger);
 
 BOOL FixTLS(Pestruct);
 
 BOOL JmpToOep(DWORD);
 
-DWORD HookIAT(DWORD, PVOID);
+DWORD HookIAT(DWORD, PVOID, PDebuger);
